@@ -1,0 +1,5 @@
+*.log
+pcg
+analyse
+contents_samples/*.txt
+contents_samples/*.log
