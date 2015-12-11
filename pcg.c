@@ -369,6 +369,117 @@ void free_text(int *text)
 }
 
 
+int test_outline(char *inputfile, int objn)
+{
+    
+	int fd_in = open(inputfile, O_RDONLY);
+	if(fd_in<0)
+	{
+		printf("open %s error\n", inputfile);
+		return -1;
+	}
+    char outputfile[256] = {0};
+    strcat(outputfile, inputfile);
+    strcat(outputfile, ".out.pdf");
+	int fd_out = open(outputfile, O_RDWR | O_CREAT);
+	if(fd_out<0)
+	{
+		printf("open %s error\n", outputfile);
+		return -1;
+	} 
+    
+	lseek(fd_in, 0, SEEK_SET);
+	char c;
+	int flag = 0;
+	while(read(fd_in,&c,1)==1)
+	{
+        //get /Catalog 0x20 [0x0d]
+        if(c=='C')
+        {
+            write(fd_out, &c, 1);
+            
+            char buf[7] = {0};
+            if(read(fd_in, buf, 7)!=7)
+            {
+                printf("read error\n");
+                return -1;
+            }
+            if(!memcmp(buf,"atalog",6))
+            {
+                write(fd_out, buf, 7);
+                //1
+                printf("got Catalog\n");
+                char wbuf[32] = {0};
+                sprintf(wbuf, "\n/Outlines %d 0 R \n", objn);
+                write(fd_out, wbuf, strlen(wbuf));
+                write(fd_out, "/PageMode /UseOutlines\n", strlen("/PageMode /UseOutlines\n"));
+                flag = 1;
+            }
+            else
+            {
+                lseek(fd_in, -7, SEEK_CUR);
+            }
+        }
+        else if (c == 'e' && flag)
+        {
+            write(fd_out, &c, 1);
+            char buf[6] = {0};
+            if(read(fd_in, buf, 6)!=6)
+            {
+                printf("read error\n");
+                return -1;
+            }
+
+            if(!memcmp(buf,"ndobj",5))
+            {
+                write(fd_out, buf, 6);
+                printf("got endobj\n");
+                char wbuf[128] = {0};
+                //2
+                sprintf(wbuf, "\n%d 0 obj \n", objn);
+                write(fd_out, wbuf, strlen(wbuf));
+
+                memset(wbuf,0,128);
+                sprintf(wbuf, "<<\n/Count 1 \n/First %d 0 R \n/Last %d 0 R\n>>\nendobj \n", objn+1, objn+2);
+                write(fd_out, wbuf, strlen(wbuf));
+                
+                //3
+                memset(wbuf,0,128);
+                sprintf(wbuf, "%d 0 obj \n", objn+1);
+                write(fd_out, wbuf, strlen(wbuf));
+                
+                memset(wbuf,0,128);
+                sprintf(wbuf, "<<\n/Title (chapter 1 test)\n/Dest [1 /Fit]\n/Parent %d 0 R \n/Next %d 0 R \n>>\nendobj\n", objn, objn+2);
+                write(fd_out, wbuf, strlen(wbuf));
+
+                //3
+                memset(wbuf,0,128);
+                sprintf(wbuf, "%d 0 obj \n", objn+2);
+                write(fd_out, wbuf, strlen(wbuf));
+                
+                memset(wbuf,0,128);
+                sprintf(wbuf, "<<\n/Title (chapter 2 test)\n/Dest [2 /Fit]\n/Parent %d 0 R \n/Prev %d 0 R \n>>\nendobj\n", objn, objn+1);
+                write(fd_out, wbuf, strlen(wbuf));
+                
+                
+                flag = 0;
+            }
+            else
+            {
+                lseek(fd_in, -6, SEEK_CUR);
+            }
+        }
+        else
+        {
+            write(fd_out, &c, 1);
+        }
+	}
+
+	close(fd_in);
+	close(fd_out);
+    return 0;
+}
+
 /*
     After reading the pdf spec, I think for support outlines, below steps are necessary:
     0. get the number of objects in pdf, make sure the new objects' ID are not exist;
@@ -425,115 +536,8 @@ int update_outlines(char *inputfile, fz_context *ctx, fz_document *doc)
     int objn = pdf_count_objects(ctx,doc);
     printf("total %d objs\n", objn);
     
-	int fd_in = open(inputfile, O_RDONLY);
-	if(fd_in<0)
-	{
-		printf("open %s error\n", inputfile);
-		return -1;
-	}
-    char outputfile[256] = {0};
-    strcat(outputfile, inputfile);
-    strcat(outputfile, ".out.pdf");
-	int fd_out = open(outputfile, O_RDWR | O_CREAT);
-	if(fd_out<0)
-	{
-		printf("open %s error\n", outputfile);
-		return -1;
-	} 
-    
-	lseek(fd_in, 0, SEEK_SET);
-	char c;
-	int flag = 0;
-	while(read(fd_in,&c,1)==1)
-	{
-        //get /Catalog 0x20 [0x0d]
-        if(c=='C')
-        {
-            write(fd_out, &c, 1);
-            
-            char buf[7] = {0};
-            if(read(fd_in, buf, 7)!=7)
-            {
-                printf("read error\n");
-                return -1;
-            }
-            if(!memcmp(buf,"atalog",6))
-            {
-                write(fd_out, buf, 7);
-                //1
-                printf("got Catalog\n");
-                char wbuf[32] = {0};
-                sprintf(wbuf, "/Outlines %d 0 R ", objn);
-                write(fd_out, wbuf, strlen(wbuf));
-                c = 0x0d;
-                write(fd_out, &c, 1);
-                write(fd_out, "/PageMode /UseOutlines ", strlen("/PageMode /UseOutlines "));
-                write(fd_out, &c, 1);
-                flag = 1;
-            }
-            else
-            {
-                lseek(fd_in, -7, SEEK_CUR);
-            }
-        }
-        else if (c == 'e' && flag)
-        {
-            //endobj 0x0A
-            write(fd_out, &c, 1);
-            char buf[6] = {0};
-            if(read(fd_in, buf, 6)!=6)
-            {
-                printf("read error\n");
-                return -1;
-            }
+    test_outline(inputfile, objn);
 
-            if(!memcmp(buf,"ndobj",5))
-            {
-                write(fd_out, buf, 6);
-                printf("got endobj\n");
-                char wbuf[128] = {0};
-                //2
-                sprintf(wbuf, "%d 0 R \n", objn);
-                write(fd_out, wbuf, strlen(wbuf));
-
-                memset(wbuf,0,128);
-                sprintf(wbuf, "<<\n/Count 1 \n/First %d 0 R \n/Last %d 0 R\n>> ", objn+1, objn+1);
-                write(fd_out, wbuf, strlen(wbuf));
-                //0x0D endobj
-                c=0x0d;
-                write(fd_out, &c, 1);
-                write(fd_out, "endobj \n", 8);
-                
-                //3
-                memset(wbuf,0,128);
-                sprintf(wbuf, "%d 0 R \n", objn+1);
-                write(fd_out, wbuf, strlen(wbuf));
-                
-                memset(wbuf,0,128);
-                sprintf(wbuf, "<<\n/Title (chapter 1 test)\n/Dest [1 /Fit]\n/Parent %d 0 R \n>> ", objn+1);
-                write(fd_out, wbuf, strlen(wbuf));
-                //0x0D endobj
-                c=0x0d;
-                write(fd_out, &c, 1);
-                write(fd_out, "endobj \n", 8);
-
-                flag = 0;
-            }
-            else
-            {
-                lseek(fd_in, -6, SEEK_CUR);
-            }
-        }
-        else
-        {
-            write(fd_out, &c, 1);
-        }
-
-        
-	}
-
-	close(fd_in);
-	close(fd_out);
     return 0;
 }
 

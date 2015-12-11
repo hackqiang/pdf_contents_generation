@@ -11,6 +11,7 @@ mupdf:
 
 pcg: pcg.c mupdf
 	cc -Wall -pipe -g -o pcg pcg.c $(mupdf_path)/build/debug/libmupdf.a $(THIRD_LIBS) $(SHARE_LIBS) $(INCLUDE_PATH)
+	./pcg contents_samples/2.pdf
 
 test: pcg
 	@for name in `ls contents_samples/*.pdf`; \
@@ -30,7 +31,7 @@ gs:
 	../gs/bin/./gs -dNOSAFER -dNOPAUSE -dNOPROMPT -dBATCH -sDEVICE=pdfwrite -dFirstPage=1 -dLastPage=2 -sOutputFile=contents_samples/x.pdf ../pdf/1.pdf
 
 view:
-	../mupdf/build/debug/mupdf-x11 contents_samples/1.pdf.out.pdf
+	../mupdf/build/debug/mupdf-x11 contents_samples/2.pdf.out.pdf
 
 clean:
 	rm -f a.out pcg contents_samples/*.txt contents_samples/*.log contents_samples/*.out.pdf
