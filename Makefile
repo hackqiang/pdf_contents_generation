@@ -29,5 +29,8 @@ fontinfo: mupdf
 gs:
 	../gs/bin/./gs -dNOSAFER -dNOPAUSE -dNOPROMPT -dBATCH -sDEVICE=pdfwrite -dFirstPage=1 -dLastPage=2 -sOutputFile=contents_samples/x.pdf ../pdf/1.pdf
 
+view:
+	../mupdf/build/debug/mupdf-x11 contents_samples/1.pdf.out.pdf
+
 clean:
-	rm -f a.out pcg contents_samples/*.txt contents_samples/*.log
+	rm -f a.out pcg contents_samples/*.txt contents_samples/*.log contents_samples/*.out.pdf

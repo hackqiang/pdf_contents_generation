@@ -368,8 +368,172 @@ void free_text(int *text)
         free(text);
 }
 
-int update_outlines()
+
+/*
+    After reading the pdf spec, I think for support outlines, below steps are necessary:
+    0. get the number of objects in pdf, make sure the new objects' ID are not exist;
+    1. add outlines in catalog, such as:
+    	/Type /Catalog
+        /Outlines 3135 0 R 
+        /PageMode /UseOutlines
+    2. add outline dictionary, such as:
+        3135 0 obj
+        <<
+            /Count 5 
+            /First 3136 0 R 
+            /Last 3140 0 R
+        >>
+        endobj
+    3. add each outline object, such as:
+        3136 0 obj
+        <<
+             
+            /Title (chapter 1 who are you)
+            /Dest [2 /Fit]
+            /Parent 3135 0 R 
+            /Next 3137 0 R
+        >>
+        3137 0 obj
+        <<
+             
+            /Title (chapter 2 make friend)
+            /Dest [20 /Fit]
+            /Parent 3135 0 R 
+            /Prev 3136 0 R
+            /Next 3138 0 R
+        >>
+        endobj
+        ...
+        3140 0 obj
+        <<
+             
+            /Title (chapter 5 last war)
+            /Dest [80 /Fit]
+            /Parent 3135 0 R 
+            /Prev 3139 0 R
+        >>
+        endobj
+    4. fix xref
+        I think maybe mupdf can fix automaticly, so don't care now.
+
+ */
+int update_outlines(char *inputfile, fz_context *ctx, fz_document *doc)
 {
+    print_tree();
+    
+    //0
+    int objn = pdf_count_objects(ctx,doc);
+    printf("total %d objs\n", objn);
+    
+	int fd_in = open(inputfile, O_RDONLY);
+	if(fd_in<0)
+	{
+		printf("open %s error\n", inputfile);
+		return -1;
+	}
+    char outputfile[256] = {0};
+    strcat(outputfile, inputfile);
+    strcat(outputfile, ".out.pdf");
+	int fd_out = open(outputfile, O_RDWR | O_CREAT);
+	if(fd_out<0)
+	{
+		printf("open %s error\n", outputfile);
+		return -1;
+	} 
+    
+	lseek(fd_in, 0, SEEK_SET);
+	char c;
+	int flag = 0;
+	while(read(fd_in,&c,1)==1)
+	{
+        //get /Catalog 0x20 [0x0d]
+        if(c=='C')
+        {
+            write(fd_out, &c, 1);
+            
+            char buf[7] = {0};
+            if(read(fd_in, buf, 7)!=7)
+            {
+                printf("read error\n");
+                return -1;
+            }
+            if(!memcmp(buf,"atalog",6))
+            {
+                write(fd_out, buf, 7);
+                //1
+                printf("got Catalog\n");
+                char wbuf[32] = {0};
+                sprintf(wbuf, "/Outlines %d 0 R ", objn);
+                write(fd_out, wbuf, strlen(wbuf));
+                c = 0x0d;
+                write(fd_out, &c, 1);
+                write(fd_out, "/PageMode /UseOutlines ", strlen("/PageMode /UseOutlines "));
+                write(fd_out, &c, 1);
+                flag = 1;
+            }
+            else
+            {
+                lseek(fd_in, -7, SEEK_CUR);
+            }
+        }
+        else if (c == 'e' && flag)
+        {
+            //endobj 0x0A
+            write(fd_out, &c, 1);
+            char buf[6] = {0};
+            if(read(fd_in, buf, 6)!=6)
+            {
+                printf("read error\n");
+                return -1;
+            }
+
+            if(!memcmp(buf,"ndobj",5))
+            {
+                write(fd_out, buf, 6);
+                printf("got endobj\n");
+                char wbuf[128] = {0};
+                //2
+                sprintf(wbuf, "%d 0 R \n", objn);
+                write(fd_out, wbuf, strlen(wbuf));
+
+                memset(wbuf,0,128);
+                sprintf(wbuf, "<<\n/Count 1 \n/First %d 0 R \n/Last %d 0 R\n>> ", objn+1, objn+1);
+                write(fd_out, wbuf, strlen(wbuf));
+                //0x0D endobj
+                c=0x0d;
+                write(fd_out, &c, 1);
+                write(fd_out, "endobj \n", 8);
+                
+                //3
+                memset(wbuf,0,128);
+                sprintf(wbuf, "%d 0 R \n", objn+1);
+                write(fd_out, wbuf, strlen(wbuf));
+                
+                memset(wbuf,0,128);
+                sprintf(wbuf, "<<\n/Title (chapter 1 test)\n/Dest [1 /Fit]\n/Parent %d 0 R \n>> ", objn+1);
+                write(fd_out, wbuf, strlen(wbuf));
+                //0x0D endobj
+                c=0x0d;
+                write(fd_out, &c, 1);
+                write(fd_out, "endobj \n", 8);
+
+                flag = 0;
+            }
+            else
+            {
+                lseek(fd_in, -6, SEEK_CUR);
+            }
+        }
+        else
+        {
+            write(fd_out, &c, 1);
+        }
+
+        
+	}
+
+	close(fd_in);
+	close(fd_out);
     return 0;
 }
 
@@ -419,7 +583,15 @@ int main(int argc, char **argv)
 		fz_drop_context(ctx);
 		return EXIT_FAILURE;
 	}
-
+    
+    fz_outline *outline = fz_load_outline(ctx, doc);
+    if(outline)
+    {
+        fprintf(stderr, "pdf already contains outline, skip!\n");
+        fz_drop_outline(ctx, outline);
+        return 0;
+    }
+    
 	/* Count the number of pages. */
 	fz_try(ctx)
 		page_count = fz_count_pages(ctx, doc);
@@ -501,8 +673,7 @@ int main(int argc, char **argv)
         }
         // get contents success, begin to analyse
         analyse_contents(text);
-        print_tree();
-        update_outlines();
+        update_outlines(inputfile, ctx, doc);
         free_text(text);
     }
 
