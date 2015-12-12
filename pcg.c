@@ -130,6 +130,66 @@ int print_unicode(int *unicode, int len)
     return 0;
 }
 
+//
+int write_unicode(int fd, int *unicode)
+{
+    int pos;
+    int len=0;
+    while(*(unicode+len)) len++;
+    
+    //em.. Text String Type need UTF-16BE
+    char t = 0xfe;
+    write(fd, &t, 1);
+    t=0xff;
+    write(fd, &t, 1);
+    
+    for (pos = 0; pos < len; pos++)
+    {
+        if(unicode[pos]<0x10000)
+        {
+            t = (unicode[pos] >> 8) & 0xff;
+            write(fd, &t, 1);
+            t = (unicode[pos]) & 0xff;
+            write(fd, &t, 1);
+        }
+        else
+        {
+            //not verify yet
+            int vh = ((unicode[pos] - 0x10000) & 0xFFC00) >> 10 ;
+            int vl =  (unicode[pos] - 0x10000) & 0x3ff;
+            short h  =  0xD800 | vh;
+            short l =  0xDC00 | vl;
+            write(fd, &h, 2); 
+            write(fd, &l, 2); 
+        }
+
+    }
+    
+    return 0;
+}
+
+char *unicode2utf8(int *unicode, char *utf8, int ulen)
+{
+    int pos;
+    int ui = 0;
+    int len=0;
+    while(*(unicode+len)) len++;
+    
+    for (pos = 0; pos < len && unicode[pos]; pos++)
+    {
+        
+        char temp[4] = {0};
+        int ret = fz_runetochar(temp,unicode[pos]);
+        if(ui+ret>ulen)
+        {
+            break;
+        }
+        memcpy(utf8+ui, temp, ret);
+        ui+=ret;
+    }
+    return utf8;
+}
+
 int unicode2int(int *unicode)
 {
     int num = 0;
@@ -150,6 +210,7 @@ void add_tree(outline_tree *new_tree)
         p = p->next;
     }
     p->next = new_tree;
+    outline_root.total++;
 }
 
 void print_tree()
@@ -369,7 +430,7 @@ void free_text(int *text)
 }
 
 
-int test_outline(char *inputfile, int objn)
+int test_outline(char *inputfile, int objn, int page_offset)
 {
     
 	int fd_in = open(inputfile, O_RDONLY);
@@ -434,33 +495,57 @@ int test_outline(char *inputfile, int objn)
             {
                 write(fd_out, buf, 6);
                 printf("got endobj\n");
-                char wbuf[128] = {0};
+                char wbuf[256] = {0};
                 //2
                 sprintf(wbuf, "\n%d 0 obj \n", objn);
                 write(fd_out, wbuf, strlen(wbuf));
 
-                memset(wbuf,0,128);
-                sprintf(wbuf, "<<\n/Count 1 \n/First %d 0 R \n/Last %d 0 R\n>>\nendobj \n", objn+1, objn+2);
-                write(fd_out, wbuf, strlen(wbuf));
-                
-                //3
-                memset(wbuf,0,128);
-                sprintf(wbuf, "%d 0 obj \n", objn+1);
-                write(fd_out, wbuf, strlen(wbuf));
-                
-                memset(wbuf,0,128);
-                sprintf(wbuf, "<<\n/Title (chapter 1 test)\n/Dest [1 /Fit]\n/Parent %d 0 R \n/Next %d 0 R \n>>\nendobj\n", objn, objn+2);
+
+                memset(wbuf,0,256);
+                sprintf(wbuf, "<<\n/Count %d \n/First %d 0 R \n/Last %d 0 R\n>>\nendobj \n", outline_root.total, objn+1, objn+outline_root.total);
                 write(fd_out, wbuf, strlen(wbuf));
 
                 //3
-                memset(wbuf,0,128);
-                sprintf(wbuf, "%d 0 obj \n", objn+2);
-                write(fd_out, wbuf, strlen(wbuf));
-                
-                memset(wbuf,0,128);
-                sprintf(wbuf, "<<\n/Title (chapter 2 test)\n/Dest [2 /Fit]\n/Parent %d 0 R \n/Prev %d 0 R \n>>\nendobj\n", objn, objn+1);
-                write(fd_out, wbuf, strlen(wbuf));
-                
+                //todo: outline_root.total==1
+                int index = 1;
+                outline_tree *p = outline_root.next;
+                while(p!=NULL) 
+                {
+                    memset(wbuf,0,256);
+                    sprintf(wbuf, "%d 0 obj \n", objn+index);
+                    write(fd_out, wbuf, strlen(wbuf));
+                    
+                    write(fd_out, "<<\n/Title (", strlen("<<\n/Title ("));
+                    
+                    //write unicode of text
+                    printf("add ");
+                    print_unicode(p->text,0);
+                    printf(" %d\n", p->pagen);
+                    
+                    write_unicode(fd_out, p->text);
+                    
+                    memset(wbuf,0,256);
+                    if(index == 1)
+                    {
+                        sprintf(wbuf, ")\n/Dest [%d /Fit]\n/Parent %d 0 R \n/Next %d 0 R \n>>\nendobj\n", 
+                                        p->pagen + page_offset, objn, objn+index+1);
+                    }
+                    else if(index == outline_root.total)
+                    {
+                        sprintf(wbuf, ")\n/Dest [%d /Fit]\n/Parent %d 0 R \n/Prev %d 0 R \n>>\nendobj\n", 
+                                        p->pagen + page_offset, objn, objn+index-1);
+                    }
+                    else
+                    {
+                        sprintf(wbuf, ")\n/Dest [%d /Fit]\n/Parent %d 0 R \n/Next %d 0 R \n/Prev %d 0 R \n>>\nendobj\n", 
+                                        p->pagen, objn, objn+index+1, objn+index-1);
+                    }
+                    write(fd_out, wbuf, strlen(wbuf));
+                    
+                    
+                    p = p->next;
+                    index++;
+                }
                 
                 flag = 0;
             }
@@ -477,6 +562,12 @@ int test_outline(char *inputfile, int objn)
 
 	close(fd_in);
 	close(fd_out);
+    return 0;
+}
+
+//todo
+int fix_page_offset()
+{
     return 0;
 }
 
@@ -534,9 +625,11 @@ int update_outlines(char *inputfile, fz_context *ctx, fz_document *doc)
     
     //0
     int objn = pdf_count_objects(ctx,doc);
-    printf("total %d objs\n", objn);
+    int page_offset = fix_page_offset();
     
-    test_outline(inputfile, objn);
+    printf("total %d objs, page offset %d\n", objn, page_offset);
+    
+    test_outline(inputfile, objn, page_offset);
 
     return 0;
 }

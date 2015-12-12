@@ -6,6 +6,7 @@
 typedef struct outline_tree {
     int text[32];   //todo..
     int pagen;
+    int total;
     struct outline_tree *pre;
     struct outline_tree *next;
     struct outline_tree *parent;

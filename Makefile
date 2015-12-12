@@ -9,7 +9,7 @@ SHARE_LIBS=-lm -lcrypto
 mupdf:
 	cd $(mupdf_path) && make
 
-pcg: pcg.c mupdf
+pcg: clean pcg.c mupdf
 	cc -Wall -pipe -g -o pcg pcg.c $(mupdf_path)/build/debug/libmupdf.a $(THIRD_LIBS) $(SHARE_LIBS) $(INCLUDE_PATH)
 	./pcg contents_samples/2.pdf
 
