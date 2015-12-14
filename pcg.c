@@ -459,15 +459,15 @@ int test_outline(char *inputfile, int objn, int page_offset)
         {
             write(fd_out, &c, 1);
             
-            char buf[7] = {0};
-            if(read(fd_in, buf, 7)!=7)
+            char buf[6] = {0};
+            if(read(fd_in, buf, 6)!=6)
             {
                 printf("read error\n");
                 return -1;
             }
             if(!memcmp(buf,"atalog",6))
             {
-                write(fd_out, buf, 7);
+                write(fd_out, buf, 6);
                 //1
                 printf("got Catalog\n");
                 char wbuf[32] = {0};
@@ -478,7 +478,7 @@ int test_outline(char *inputfile, int objn, int page_offset)
             }
             else
             {
-                lseek(fd_in, -7, SEEK_CUR);
+                lseek(fd_in, -6, SEEK_CUR);
             }
         }
         else if (c == 'e' && flag)
